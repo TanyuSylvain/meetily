@@ -1,4 +1,4 @@
-use crate::database::models::{Setting, TranscriptSetting};
+use crate::database::models::{CustomAsrConfig, Setting, TranscriptSetting};
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
 
@@ -180,6 +180,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
+            "custom-api" => return Ok(()), // Uses customAsrConfig JSON instead
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -212,6 +213,12 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
+            "custom-api" => {
+                // Prefer key from customAsrConfig JSON
+                return Ok(Self::get_custom_asr_config(pool)
+                    .await?
+                    .and_then(|c| c.api_key));
+            }
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -336,6 +343,71 @@ impl SettingsRepository {
             VALUES ('1', 'custom-openai', $1, 'large-v3', $2)
             ON CONFLICT(id) DO UPDATE SET
                 customOpenAIConfig = excluded.customOpenAIConfig
+            "#,
+        )
+        .bind(&config.model)
+        .bind(config_json)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ===== CUSTOM ASR (TRANSCRIPT) CONFIG METHODS =====
+
+    pub async fn get_custom_asr_config(
+        pool: &SqlitePool,
+    ) -> std::result::Result<Option<CustomAsrConfig>, sqlx::Error> {
+        use sqlx::Row;
+
+        let row = sqlx::query(
+            r#"
+            SELECT customAsrConfig
+            FROM transcript_settings
+            WHERE id = '1'
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(record) => {
+                let config_json: Option<String> = record.get("customAsrConfig");
+                if let Some(json) = config_json {
+                    let config: CustomAsrConfig = serde_json::from_str(&json).map_err(|e| {
+                        sqlx::Error::Protocol(
+                            format!("Invalid JSON in customAsrConfig: {}", e).into(),
+                        )
+                    })?;
+                    Ok(Some(config))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn save_custom_asr_config(
+        pool: &SqlitePool,
+        config: &CustomAsrConfig,
+    ) -> std::result::Result<(), sqlx::Error> {
+        let config_json = serde_json::to_string(config).map_err(|e| {
+            sqlx::Error::Protocol(format!("Failed to serialize customAsrConfig: {}", e).into())
+        })?;
+
+        // Upsert: preserve provider if already custom-api, otherwise set custom-api when saving config
+        sqlx::query(
+            r#"
+            INSERT INTO transcript_settings (id, provider, model, customAsrConfig)
+            VALUES ('1', 'custom-api', $1, $2)
+            ON CONFLICT(id) DO UPDATE SET
+                customAsrConfig = excluded.customAsrConfig,
+                model = CASE
+                    WHEN transcript_settings.provider = 'custom-api' THEN excluded.model
+                    ELSE transcript_settings.model
+                END
             "#,
         )
         .bind(&config.model)

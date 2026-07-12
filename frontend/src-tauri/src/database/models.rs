@@ -127,4 +127,27 @@ pub struct TranscriptSetting {
     #[sqlx(rename = "openaiApiKey")]
     #[serde(rename = "openaiApiKey")]
     pub openai_api_key: Option<String>,
+    /// Custom ASR API configuration stored as JSON
+    #[sqlx(rename = "customAsrConfig")]
+    #[serde(rename = "customAsrConfig")]
+    pub custom_asr_config: Option<String>,
+}
+
+/// Custom API ASR configuration (MiMo / OpenAI-compatible chat+audio endpoints)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomAsrConfig {
+    pub endpoint: String,
+    #[serde(rename = "apiKey")]
+    pub api_key: Option<String>,
+    pub model: String,
+    /// Optional language hint: auto | zh | en
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+impl TranscriptSetting {
+    pub fn get_custom_asr_config(&self) -> Option<CustomAsrConfig> {
+        self.custom_asr_config.as_ref().and_then(|json| serde_json::from_str(json).ok())
+    }
 }

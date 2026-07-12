@@ -198,11 +198,37 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         const config = await configService.getTranscriptConfig();
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
-          setTranscriptModelConfig({
+          let nextConfig: TranscriptModelProps = {
             provider: config.provider || 'parakeet',
             model: config.model || 'parakeet-tdt-0.6b-v3-int8',
             apiKey: config.apiKey || null
-          });
+          };
+
+          if (nextConfig.provider === 'custom-api') {
+            try {
+              const customAsr = await invoke<{
+                endpoint: string;
+                apiKey?: string | null;
+                model: string;
+                language?: string | null;
+              } | null>('api_get_custom_asr_config');
+              if (customAsr) {
+                nextConfig = {
+                  ...nextConfig,
+                  model: customAsr.model || nextConfig.model,
+                  apiKey: customAsr.apiKey ?? nextConfig.apiKey,
+                  customAsrEndpoint: customAsr.endpoint,
+                  customAsrModel: customAsr.model,
+                  customAsrApiKey: customAsr.apiKey ?? null,
+                  customAsrLanguage: customAsr.language ?? 'auto',
+                };
+              }
+            } catch (asrErr) {
+              console.error('[ConfigContext] Failed to load custom ASR config:', asrErr);
+            }
+          }
+
+          setTranscriptModelConfig(nextConfig);
         }
       } catch (error) {
         console.error('[ConfigContext] Failed to load transcript config:', error);

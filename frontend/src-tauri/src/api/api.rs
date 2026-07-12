@@ -6,7 +6,7 @@ use tauri_plugin_store::StoreExt;
 
 use crate::{
     database::{
-        models::MeetingModel,
+        models::{CustomAsrConfig, MeetingModel},
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
             transcript::TranscriptsRepository,
@@ -1378,6 +1378,113 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             } else {
                 Err(format!("Connection failed: {}", e))
             }
+        }
+    }
+}
+
+// ===== CUSTOM ASR (TRANSCRIPT API) COMMANDS =====
+
+#[tauri::command]
+pub async fn api_save_custom_asr_config<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    endpoint: String,
+    api_key: Option<String>,
+    model: String,
+    language: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "api_save_custom_asr_config called: endpoint='{}', model='{}'",
+        &endpoint,
+        &model
+    );
+
+    if endpoint.trim().is_empty() {
+        return Err("Endpoint URL is required".to_string());
+    }
+    if model.trim().is_empty() {
+        return Err("Model name is required".to_string());
+    }
+    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+        return Err("Endpoint must start with http:// or https://".to_string());
+    }
+
+    let config = CustomAsrConfig {
+        endpoint: endpoint.trim().to_string(),
+        api_key: api_key.filter(|k| !k.trim().is_empty()),
+        model: model.trim().to_string(),
+        language: language
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty()),
+    };
+
+    let pool = state.db_manager.pool();
+
+    // Save JSON config
+    SettingsRepository::save_custom_asr_config(pool, &config)
+        .await
+        .map_err(|e| format!("Failed to save custom ASR config: {}", e))?;
+
+    // Also set active transcript provider to custom-api
+    SettingsRepository::save_transcript_config(pool, "custom-api", &config.model)
+        .await
+        .map_err(|e| format!("Failed to save transcript provider: {}", e))?;
+
+    log_info!(
+        "✅ Saved custom ASR config: endpoint={}, model={}",
+        config.endpoint,
+        config.model
+    );
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Custom ASR configuration saved successfully"
+    }))
+}
+
+#[tauri::command]
+pub async fn api_get_custom_asr_config<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<CustomAsrConfig>, String> {
+    log_info!("api_get_custom_asr_config called");
+    let pool = state.db_manager.pool();
+    SettingsRepository::get_custom_asr_config(pool)
+        .await
+        .map_err(|e| format!("Failed to get custom ASR config: {}", e))
+}
+
+#[tauri::command]
+pub async fn api_test_custom_asr_connection(
+    endpoint: String,
+    api_key: Option<String>,
+    model: String,
+    language: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "api_test_custom_asr_connection called: endpoint='{}', model='{}'",
+        &endpoint,
+        &model
+    );
+
+    let provider = crate::audio::transcription::CustomApiAsrProvider::new(
+        endpoint,
+        api_key,
+        model,
+        language,
+    );
+
+    match provider.test_connection().await {
+        Ok(message) => {
+            log_info!("✅ Custom ASR connection test successful");
+            Ok(serde_json::json!({
+                "status": "success",
+                "message": message
+            }))
+        }
+        Err(e) => {
+            log_warn!("⚠️ Custom ASR connection test failed: {}", e);
+            Err(e)
         }
     }
 }

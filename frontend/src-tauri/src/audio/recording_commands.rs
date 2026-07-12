@@ -671,7 +671,11 @@ pub async fn stop_recording<R: Runtime>(
                 warn!("⚠️ No Parakeet engine found to unload model");
             }
         }
-        _ => {
+        Some("custom-api") => {
+            // Remote API has no local model to unload
+            info!("☁️ Custom API transcription — no local model to unload");
+        }
+        Some("localWhisper") | _ => {
             // Default to Whisper
             info!("🎤 Unloading Whisper model...");
             let engine_clone = {

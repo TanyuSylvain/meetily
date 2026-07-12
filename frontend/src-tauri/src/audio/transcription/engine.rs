@@ -135,10 +135,43 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        "custom-api" => {
+            info!("🔍 Validating Custom API ASR configuration...");
+            let state = app.state::<crate::state::AppState>();
+            match crate::database::repositories::setting::SettingsRepository::get_custom_asr_config(
+                state.db_manager.pool(),
+            )
+            .await
+            {
+                Ok(Some(cfg)) => {
+                    let provider = crate::audio::transcription::CustomApiAsrProvider::from_config(&cfg);
+                    if !provider.is_configured() {
+                        return Err(
+                            "Custom API transcription is incomplete. Please set endpoint, model, and API key in Settings → Transcription."
+                                .to_string(),
+                        );
+                    }
+                    if !cfg.endpoint.starts_with("http://") && !cfg.endpoint.starts_with("https://")
+                    {
+                        return Err("Custom API endpoint must start with http:// or https://".to_string());
+                    }
+                    info!(
+                        "✅ Custom API ASR config ready: model={}, endpoint={}",
+                        cfg.model, cfg.endpoint
+                    );
+                    Ok(())
+                }
+                Ok(None) => Err(
+                    "Custom API transcription is not configured. Please set endpoint, model, and API key in Settings → Transcription."
+                        .to_string(),
+                ),
+                Err(e) => Err(format!("Failed to load Custom API ASR config: {}", e)),
+            }
+        }
         other => {
-            warn!("❌ Unsupported transcription provider for local recording: {}", other);
+            warn!("❌ Unsupported transcription provider for recording: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported for transcription. Please select Parakeet, Local Whisper, or Custom API.",
                 other
             ))
         }
@@ -212,10 +245,43 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 }
             }
         }
-        "localWhisper" | _ => {
+        "custom-api" => {
+            info!("☁️ Initializing Custom API transcription engine");
+            let state = app.state::<crate::state::AppState>();
+            let cfg = crate::database::repositories::setting::SettingsRepository::get_custom_asr_config(
+                state.db_manager.pool(),
+            )
+            .await
+            .map_err(|e| format!("Failed to load Custom API ASR config: {}", e))?
+            .ok_or_else(|| {
+                "Custom API ASR is not configured. Set endpoint, model, and API key in Settings → Transcription."
+                    .to_string()
+            })?;
+
+            let provider = crate::audio::transcription::CustomApiAsrProvider::from_config(&cfg);
+            if !provider.is_configured() {
+                return Err(
+                    "Custom API ASR configuration is incomplete (endpoint, model, and API key required)."
+                        .to_string(),
+                );
+            }
+
+            info!(
+                "✅ Custom API ASR ready: model={}, endpoint={}",
+                cfg.model, cfg.endpoint
+            );
+            Ok(TranscriptionEngine::Provider(std::sync::Arc::new(provider)))
+        }
+        "localWhisper" => {
             info!("🎤 Initializing Whisper transcription engine");
             let whisper_engine = get_or_init_whisper(app).await?;
             Ok(TranscriptionEngine::Whisper(whisper_engine))
+        }
+        other => {
+            Err(format!(
+                "Unsupported transcription provider '{}'. Use parakeet, localWhisper, or custom-api.",
+                other
+            ))
         }
     }
 }
