@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
+import type { TranscriptModelProps } from '@/components/TranscriptSettings';
 
 export interface Language {
   code: string;
@@ -118,7 +119,7 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+  provider?: TranscriptModelProps['provider'];
 }
 
 export function LanguageSelection({
@@ -131,10 +132,14 @@ export function LanguageSelection({
   const { setSelectedLanguage } = useConfig();
 
   // Parakeet only supports auto-detection (doesn't support manual language selection)
+  // Custom API (e.g. MiMo ASR) typically supports auto / zh / en
   const isParakeet = provider === 'parakeet';
+  const isCustomApi = provider === 'custom-api';
   const availableLanguages = isParakeet
     ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
-    : LANGUAGES;
+    : isCustomApi
+      ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'zh' || lang.code === 'en')
+      : LANGUAGES;
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
