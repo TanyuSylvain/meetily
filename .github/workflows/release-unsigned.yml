@@ -1,9 +1,9 @@
 name: "Release (Unsigned)"
 
-# Minimal macOS + Windows release without Apple or DigiCert secrets.
-# Uses only GITHUB_TOKEN (auto). Optional TAURI_SIGNING_* if present for .sig files.
+# Minimal macOS-only release without Apple, DigiCert, or Tauri updater signing secrets.
+# Uses only GITHUB_TOKEN (auto).
 #
-# Tradeoffs: Gatekeeper / SmartScreen warnings; not for production notarized distribution.
+# Tradeoffs: Gatekeeper warnings; not notarized; no in-app updater artifacts.
 # For signed production releases use "Release" (release.yml) when signing secrets work.
 
 on:
@@ -86,17 +86,17 @@ jobs:
             const isDraft = ${{ inputs.draft }};
             const isPrerelease = ${{ inputs.prerelease }};
             const notice = [
-              '## Unsigned build',
+              '## Unsigned macOS build',
               '',
-              'This release was produced by **Release (Unsigned)** — no Apple Developer ID / notarization and no DigiCert Windows signing.',
+              'This release was produced by **Release (Unsigned)** — no Apple Developer ID / notarization.',
               '',
               '**Expected user friction**',
-              '- **macOS:** Gatekeeper may block the app until the user allows it (Right-click → Open, or System Settings → Privacy & Security).',
-              '- **Windows:** SmartScreen may warn about an unrecognized app.',
+              '- **macOS:** Gatekeeper may block the app (Right-click → Open, or System Settings → Privacy & Security).',
               '',
               '**Not included**',
-              '- Production code-signed installers',
-              '- Guaranteed in-app auto-update packages (unless TAURI_SIGNING_* secrets are configured)',
+              '- Windows installers (use a signed Release or separate Windows workflow)',
+              '- Production code-signed / notarized installers',
+              '- In-app auto-update packages (updater plugin disabled for this build)',
               '',
               'Use the signed **Release** workflow for production when signing secrets are available.',
               '',
@@ -108,7 +108,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${version}`,
-              name: `Meetily v${version} (unsigned)`,
+              name: `Meetily v${version} (unsigned macOS)`,
               body: notice,
               draft: isDraft,
               prerelease: isPrerelease,
@@ -117,36 +117,24 @@ jobs:
             console.log(`Created release id=${data.id} tag=v${version} draft=${isDraft} prerelease=${isPrerelease}`);
             return data.id;
 
-  build-macos-windows:
+  build-macos:
     needs: create-release
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
-          - platform: "windows-latest"
-            args: ""
-            target: "x86_64-pc-windows-msvc"
-
     uses: ./.github/workflows/build.yml
     with:
-      platform: ${{ matrix.platform }}
-      target: ${{ matrix.target }}
-      build-args: ${{ matrix.args }}
-      # No Apple / DigiCert secrets required
+      platform: "macos-latest"
+      target: "aarch64-apple-darwin"
+      build-args: "--target aarch64-apple-darwin"
+      # No Apple / DigiCert / Tauri updater private key required
       sign-binaries: false
       asset-prefix: "meetily"
-      # tauri-action uploads bundles onto the draft/prerelease
       upload-artifacts: false
       release-id: ${{ needs.create-release.outputs.release-id }}
     secrets: inherit
 
   release-summary:
-    needs: [create-release, build-macos-windows]
+    needs: [create-release, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -159,7 +147,7 @@ jobs:
           RELEASE_ID="${{ needs.create-release.outputs.release-id }}"
 
           {
-            echo "## Unsigned release ready"
+            echo "## Unsigned macOS release ready"
             echo ""
             echo "**Version:** v${VERSION}"
             echo ""
@@ -172,11 +160,11 @@ jobs:
             echo "\`\`\`"
             echo ""
             echo "### Notes"
-            echo "- **Unsigned** macOS (ad-hoc) + Windows (no DigiCert)"
+            echo "- **Unsigned macOS only** (ad-hoc codesign; no notarization)"
             echo "- Draft: \`${{ inputs.draft }}\` · Pre-release: \`${{ inputs.prerelease }}\`"
             echo "- Review the release page, then publish if it is still a draft"
-            echo "- Users may see Gatekeeper / SmartScreen warnings"
+            echo "- Users may need Right-click → Open for Gatekeeper"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Unsigned release v${VERSION} (id=${RELEASE_ID})"
+          echo "Unsigned macOS release v${VERSION} (id=${RELEASE_ID})"
           echo "https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"

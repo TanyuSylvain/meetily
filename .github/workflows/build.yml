@@ -568,7 +568,26 @@ jobs:
 
       # Unsigned builds must NOT set APPLE_* or TAURI_SIGNING_* at all.
       # Empty APPLE_CERTIFICATE still triggers `security import` and fails.
-      # A malformed TAURI_SIGNING_PRIVATE_KEY secret also fails the bundle step.
+      # A pubkey in tauri.conf without TAURI_SIGNING_PRIVATE_KEY fails after bundling.
+      - name: Disable updater plugin for unsigned builds
+        if: ${{ !inputs.sign-binaries }}
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("frontend/src-tauri/tauri.conf.json")
+          conf = json.loads(path.read_text())
+          plugins = conf.get("plugins") or {}
+          if "updater" in plugins:
+              del plugins["updater"]
+              conf["plugins"] = plugins
+              path.write_text(json.dumps(conf, indent=4) + "\n")
+              print("Removed plugins.updater from tauri.conf.json (unsigned build)")
+          else:
+              print("No plugins.updater section; nothing to remove")
+          PY
+
       - name: Build with Tauri (unsigned)
         id: tauri-build-unsigned
         if: ${{ !inputs.sign-binaries }}

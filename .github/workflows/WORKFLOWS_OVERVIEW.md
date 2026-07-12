@@ -164,15 +164,16 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 7b. **release-unsigned.yml** - Minimal Unsigned Release
-**Purpose:** macOS + Windows installers with **no** Apple/DigiCert secrets
+### 7b. **release-unsigned.yml** - Minimal Unsigned macOS Release
+**Purpose:** macOS DMG with **no** Apple/DigiCert/Tauri updater secrets
 
 **Key Features:**
-- `sign-binaries: false` (skips Apple cert import and DigiCert KeyLocker)
-- macOS ad-hoc identity + Windows sign script no-ops without DigiCert
+- **macOS only** (faster; no Windows job)
+- `sign-binaries: false` (skips Apple cert import)
+- Strips `plugins.updater` from `tauri.conf.json` for the CI build so no private key is required
 - Creates GitHub Release (draft + pre-release by default)
 - Same version/tag logic as production Release
-- Only needs `GITHUB_TOKEN` (optional: `TAURI_SIGNING_*` for updater `.sig` if configured)
+- Only needs `GITHUB_TOKEN`
 
 **Triggers:**
 - Manual dispatch only
@@ -182,16 +183,16 @@ This document provides a quick overview of all available CI/CD workflows in this
 - `prerelease` (default true)
 
 **Use When:**
-- You need distributable DMG/MSI without production signing secrets
+- You need a distributable DMG without production signing secrets
 - Personal/team testing and pre-releases
 
 **Outputs:**
-- GitHub Release (draft/prerelease) titled `Meetily vX.Y.Z (unsigned)`
+- GitHub Release (draft/prerelease) titled `Meetily vX.Y.Z (unsigned macOS)`
 - macOS DMG (unsigned / ad-hoc)
-- Windows MSI + NSIS (unsigned)
 
 **Tradeoffs:**
-- Gatekeeper / SmartScreen warnings for end users
+- Gatekeeper warnings for end users
+- No Windows assets; no in-app updater packages
 - Not a substitute for signed production Release
 
 ---
@@ -254,11 +255,11 @@ This document provides a quick overview of all available CI/CD workflows in this
 - Signing enabled
 - Full verification
 
-### "I need a macOS+Windows release without signing secrets..."
+### "I need a macOS release without signing secrets..."
 - **Use `release-unsigned.yml`** (manual dispatch)
-- No Apple/DigiCert secrets required
+- macOS only; no Apple/DigiCert/Tauri updater secrets
 - Draft + pre-release by default
-- Expect Gatekeeper/SmartScreen warnings
+- Expect Gatekeeper warnings
 
 ### "I'm ready to release (production signed)..."
 - **Use `release.yml`** (manual dispatch)
@@ -295,7 +296,7 @@ Standalone (don't use build.yml):
 | `build-windows.yml` | Windows | Optional | Medium | 30 days | Windows dev |
 | `build-linux.yml` | Linux | Optional | Medium | 30 days | Linux dev |
 | `build-test.yml` | All | ON | Slow | 30 days | Pre-release |
-| `release-unsigned.yml` | macOS + Windows | OFF | Medium | Permanent | Unsigned release |
+| `release-unsigned.yml` | macOS only | OFF | Medium | Permanent | Unsigned macOS release |
 | `release.yml` | macOS + Windows | REQUIRED | Slow | Permanent | Signed release |
 
 ---
