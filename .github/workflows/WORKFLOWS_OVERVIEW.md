@@ -164,6 +164,38 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
+### 7b. **release-unsigned.yml** - Minimal Unsigned Release
+**Purpose:** macOS + Windows installers with **no** Apple/DigiCert secrets
+
+**Key Features:**
+- `sign-binaries: false` (skips Apple cert import and DigiCert KeyLocker)
+- macOS ad-hoc identity + Windows sign script no-ops without DigiCert
+- Creates GitHub Release (draft + pre-release by default)
+- Same version/tag logic as production Release
+- Only needs `GITHUB_TOKEN` (optional: `TAURI_SIGNING_*` for updater `.sig` if configured)
+
+**Triggers:**
+- Manual dispatch only
+
+**Inputs:**
+- `draft` (default true)
+- `prerelease` (default true)
+
+**Use When:**
+- You need distributable DMG/MSI without production signing secrets
+- Personal/team testing and pre-releases
+
+**Outputs:**
+- GitHub Release (draft/prerelease) titled `Meetily vX.Y.Z (unsigned)`
+- macOS DMG (unsigned / ad-hoc)
+- Windows MSI + NSIS (unsigned)
+
+**Tradeoffs:**
+- Gatekeeper / SmartScreen warnings for end users
+- Not a substitute for signed production Release
+
+---
+
 ### 8. **pr-main-check.yml** - Validation Check
 **Purpose:** Quick validation of version and configuration
 
@@ -222,10 +254,16 @@ This document provides a quick overview of all available CI/CD workflows in this
 - Signing enabled
 - Full verification
 
-### "I'm ready to release..."
+### "I need a macOS+Windows release without signing secrets..."
+- **Use `release-unsigned.yml`** (manual dispatch)
+- No Apple/DigiCert secrets required
+- Draft + pre-release by default
+- Expect Gatekeeper/SmartScreen warnings
+
+### "I'm ready to release (production signed)..."
 - **Use `release.yml`** (manual dispatch)
 - Creates GitHub Release
-- All platforms, fully signed
+- macOS + Windows, fully signed
 - Production-ready artifacts
 
 ---
@@ -236,6 +274,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 build.yml (reusable)
     |-- build-test.yml (calls build.yml)
     |-- release.yml (calls build.yml)
+    |-- release-unsigned.yml (calls build.yml, sign-binaries=false)
 
 Standalone (don't use build.yml):
     |-- build-macos.yml
@@ -256,7 +295,8 @@ Standalone (don't use build.yml):
 | `build-windows.yml` | Windows | Optional | Medium | 30 days | Windows dev |
 | `build-linux.yml` | Linux | Optional | Medium | 30 days | Linux dev |
 | `build-test.yml` | All | ON | Slow | 30 days | Pre-release |
-| `release.yml` | macOS + Windows | REQUIRED | Slow | Permanent | Release |
+| `release-unsigned.yml` | macOS + Windows | OFF | Medium | Permanent | Unsigned release |
+| `release.yml` | macOS + Windows | REQUIRED | Slow | Permanent | Signed release |
 
 ---
 

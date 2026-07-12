@@ -1,0 +1,182 @@
+name: "Release (Unsigned)"
+
+# Minimal macOS + Windows release without Apple or DigiCert secrets.
+# Uses only GITHUB_TOKEN (auto). Optional TAURI_SIGNING_* if present for .sig files.
+#
+# Tradeoffs: Gatekeeper / SmartScreen warnings; not for production notarized distribution.
+# For signed production releases use "Release" (release.yml) when signing secrets work.
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: "Create as draft release (publish manually when ready)"
+        required: false
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      release-id: ${{ steps.create-release.outputs.result }}
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tauri.conf.json and check for existing tags
+        id: get-version
+        shell: bash
+        run: |
+          BASE_VERSION=$(grep -o '"version": "[^"]*"' frontend/src-tauri/tauri.conf.json | cut -d'"' -f4)
+          echo "Base version from tauri.conf.json: $BASE_VERSION"
+
+          git fetch --tags
+
+          if git tag -l "v${BASE_VERSION}" | grep -q .; then
+            echo "Tag v${BASE_VERSION} already exists, looking for minor updates..."
+
+            LATEST_MINOR=0
+            for i in $(seq 1 100); do
+              if git tag -l "v${BASE_VERSION}.${i}" | grep -q .; then
+                LATEST_MINOR=$i
+              else
+                break
+              fi
+            done
+
+            NEXT_MINOR=$((LATEST_MINOR + 1))
+
+            if [ $NEXT_MINOR -gt 100 ]; then
+              echo "ERROR: Maximum minor version (100) reached for ${BASE_VERSION}"
+              echo "Please update the version in tauri.conf.json"
+              exit 1
+            fi
+
+            VERSION="${BASE_VERSION}.${NEXT_MINOR}"
+            echo "Using minor update version: $VERSION"
+          else
+            VERSION="${BASE_VERSION}"
+            echo "Using base version: $VERSION"
+          fi
+
+          echo "Final version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.get-version.outputs.version }}';
+            const isDraft = ${{ inputs.draft }};
+            const isPrerelease = ${{ inputs.prerelease }};
+            const notice = [
+              '## Unsigned build',
+              '',
+              'This release was produced by **Release (Unsigned)** — no Apple Developer ID / notarization and no DigiCert Windows signing.',
+              '',
+              '**Expected user friction**',
+              '- **macOS:** Gatekeeper may block the app until the user allows it (Right-click → Open, or System Settings → Privacy & Security).',
+              '- **Windows:** SmartScreen may warn about an unrecognized app.',
+              '',
+              '**Not included**',
+              '- Production code-signed installers',
+              '- Guaranteed in-app auto-update packages (unless TAURI_SIGNING_* secrets are configured)',
+              '',
+              'Use the signed **Release** workflow for production when signing secrets are available.',
+              '',
+              '---',
+              '',
+            ].join('\n');
+
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${version}`,
+              name: `Meetily v${version} (unsigned)`,
+              body: notice,
+              draft: isDraft,
+              prerelease: isPrerelease,
+              generate_release_notes: true,
+            });
+            console.log(`Created release id=${data.id} tag=v${version} draft=${isDraft} prerelease=${isPrerelease}`);
+            return data.id;
+
+  build-macos-windows:
+    needs: create-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+            target: "aarch64-apple-darwin"
+          - platform: "windows-latest"
+            args: ""
+            target: "x86_64-pc-windows-msvc"
+
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      build-args: ${{ matrix.args }}
+      # No Apple / DigiCert secrets required
+      sign-binaries: false
+      asset-prefix: "meetily"
+      # tauri-action uploads bundles onto the draft/prerelease
+      upload-artifacts: false
+      release-id: ${{ needs.create-release.outputs.release-id }}
+    secrets: inherit
+
+  release-summary:
+    needs: [create-release, build-macos-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Summarize release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          RELEASE_ID="${{ needs.create-release.outputs.release-id }}"
+
+          {
+            echo "## Unsigned release ready"
+            echo ""
+            echo "**Version:** v${VERSION}"
+            echo ""
+            echo "**Release:** https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+            echo ""
+            echo "### Assets"
+            echo "\`\`\`"
+            gh api "repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" \
+              --jq '.[] | "\(.name) (\(.size / 1048576 | floor)MB)"' || echo "(could not list assets)"
+            echo "\`\`\`"
+            echo ""
+            echo "### Notes"
+            echo "- **Unsigned** macOS (ad-hoc) + Windows (no DigiCert)"
+            echo "- Draft: \`${{ inputs.draft }}\` · Pre-release: \`${{ inputs.prerelease }}\`"
+            echo "- Review the release page, then publish if it is still a draft"
+            echo "- Users may see Gatekeeper / SmartScreen warnings"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Unsigned release v${VERSION} (id=${RELEASE_ID})"
+          echo "https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
