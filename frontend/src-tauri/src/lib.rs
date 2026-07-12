@@ -671,6 +671,16 @@ pub fn run() {
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,
             summary::template_commands::api_validate_template,
+            // Summary markdown export
+            summary::export::get_summary_export_preferences,
+            summary::export::set_summary_export_preferences,
+            summary::export::get_default_summary_export_folder_path,
+            summary::export::select_summary_export_folder,
+            summary::export::open_summary_export_folder,
+            summary::export::validate_summary_export_path,
+            summary::export::export_summary_markdown,
+            summary::export::get_summary_export_binding,
+            summary::export::set_summary_export_binding,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,

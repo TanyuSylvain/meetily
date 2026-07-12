@@ -4,13 +4,14 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
+import { buildSummaryMarkdown } from '@/hooks/meeting-details/summaryMarkdown';
 
 interface UseCopyOperationsProps {
   meeting: any;
   transcripts: Transcript[];
   meetingTitle: string;
   aiSummary: Summary | null;
-  blockNoteSummaryRef: RefObject<BlockNoteSummaryViewRef>;
+  blockNoteSummaryRef: RefObject<BlockNoteSummaryViewRef | null>;
 }
 
 export function useCopyOperations({
@@ -107,72 +108,16 @@ export function useCopyOperations({
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
     try {
-      let summaryMarkdown = '';
-
       console.log('🔍 Copy Summary - Starting...');
 
-      // Try to get markdown from BlockNote editor first
-      if (blockNoteSummaryRef.current?.getMarkdown) {
-        console.log('📝 Trying to get markdown from ref...');
-        summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
-        console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
-      }
+      const fullMarkdown = await buildSummaryMarkdown({
+        meeting,
+        meetingTitle,
+        aiSummary,
+        blockNoteSummaryRef,
+        kind: 'copy',
+      });
 
-      // Fallback: Check if aiSummary has markdown property
-      if (!summaryMarkdown && aiSummary && 'markdown' in aiSummary) {
-        console.log('📝 Using markdown from aiSummary');
-        summaryMarkdown = (aiSummary as any).markdown || '';
-        console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
-      }
-
-      // Fallback: Check for legacy format
-      if (!summaryMarkdown && aiSummary) {
-        console.log('📝 Converting legacy format to markdown');
-        const sections = Object.entries(aiSummary)
-          .filter(([key]) => {
-            // Skip non-section keys
-            return key !== 'markdown' && key !== 'summary_json' && key !== '_section_order' && key !== 'MeetingName';
-          })
-          .map(([, section]) => {
-            if (section && typeof section === 'object' && 'title' in section && 'blocks' in section) {
-              const sectionTitle = `## ${section.title}\n\n`;
-              const sectionContent = section.blocks
-                .map((block: any) => `- ${block.content}`)
-                .join('\n');
-              return sectionTitle + sectionContent;
-            }
-            return '';
-          })
-          .filter(s => s.trim())
-          .join('\n\n');
-        summaryMarkdown = sections;
-        console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
-      }
-
-      // If still no summary content, show message
-      if (!summaryMarkdown.trim()) {
-        console.error('❌ No summary content available to copy');
-        toast.error('No summary content available to copy');
-        return;
-      }
-
-      // Build metadata header
-      const header = `# Meeting Summary: ${meetingTitle}\n\n`;
-      const metadata = `**Meeting ID:** ${meeting.id}\n**Date:** ${new Date(meeting.created_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n**Copied on:** ${new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n\n---\n\n`;
-
-      const fullMarkdown = header + metadata + summaryMarkdown;
       await navigator.clipboard.writeText(fullMarkdown);
 
       console.log('✅ Successfully copied to clipboard!');
@@ -185,7 +130,8 @@ export function useCopyOperations({
       });
     } catch (error) {
       console.error('❌ Failed to copy summary:', error);
-      toast.error("Failed to copy summary");
+      const message = error instanceof Error ? error.message : 'Failed to copy summary';
+      toast.error(message.includes('No summary') ? message : 'Failed to copy summary');
     }
   }, [aiSummary, meetingTitle, meeting, blockNoteSummaryRef]);
 

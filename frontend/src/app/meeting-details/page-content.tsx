@@ -15,8 +15,10 @@ import { useMeetingData } from '@/hooks/meeting-details/useMeetingData';
 import { useSummaryGeneration } from '@/hooks/meeting-details/useSummaryGeneration';
 import { useTemplates } from '@/hooks/meeting-details/useTemplates';
 import { useCopyOperations } from '@/hooks/meeting-details/useCopyOperations';
+import { useSummaryExport } from '@/hooks/meeting-details/useSummaryExport';
 import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperations';
 import { useConfig } from '@/contexts/ConfigContext';
+import { SummaryExportDialog } from '@/components/MeetingDetails/SummaryExportDialog';
 
 export default function PageContent({
   meeting,
@@ -130,6 +132,13 @@ export default function PageContent({
     blockNoteSummaryRef: meetingData.blockNoteSummaryRef,
   });
 
+  const summaryExport = useSummaryExport({
+    meeting,
+    meetingTitle: meetingData.meetingTitle,
+    aiSummary: meetingData.aiSummary,
+    blockNoteSummaryRef: meetingData.blockNoteSummaryRef,
+  });
+
   const meetingOperations = useMeetingOperations({
     meeting,
   });
@@ -204,6 +213,7 @@ export default function PageContent({
           isSaving={meetingData.isSaving}
           onSaveAll={meetingData.saveAllChanges}
           onCopySummary={copyOperations.handleCopySummary}
+          onExportSummary={summaryExport.openExportDialog}
           onOpenFolder={meetingOperations.handleOpenMeetingFolder}
           aiSummary={meetingData.aiSummary}
           summaryStatus={summaryGeneration.summaryStatus}
@@ -228,6 +238,14 @@ export default function PageContent({
           onOpenModelSettings={handleRegisterModalOpen}
         />
       </div>
+
+      <SummaryExportDialog
+        open={summaryExport.isExportDialogOpen}
+        onOpenChange={summaryExport.setIsExportDialogOpen}
+        defaultFilename={summaryExport.defaultFilename}
+        initialFolder={summaryExport.initialFolder}
+        onConfirm={summaryExport.handleExportConfirm}
+      />
     </motion.div>
   );
 }

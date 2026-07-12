@@ -4,6 +4,7 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { buildSummaryMarkdown } from '@/hooks/meeting-details/summaryMarkdown';
 
 interface UseMeetingDataProps {
   meeting: any;
@@ -132,14 +133,50 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
         await handleSaveSummary(aiSummary);
       }
 
-      toast.success("Changes saved successfully");
+      // If this meeting was previously exported, update the bound markdown file
+      let exportedFileUpdated = false;
+      try {
+        const boundPath = await invokeTauri<string | null>('get_summary_export_binding', {
+          meetingId: meeting.id,
+        });
+
+        if (boundPath) {
+          try {
+            const content = await buildSummaryMarkdown({
+              meeting,
+              meetingTitle,
+              aiSummary,
+              blockNoteSummaryRef,
+              kind: 'export',
+            });
+            await invokeTauri('export_summary_markdown', {
+              filePath: boundPath,
+              content,
+            });
+            exportedFileUpdated = true;
+          } catch (exportError) {
+            console.error('Failed to update exported markdown file:', exportError);
+            toast.warning('Saved in Meetily, but failed to update the exported markdown file', {
+              description: exportError instanceof Error ? exportError.message : String(exportError),
+            });
+          }
+        }
+      } catch (bindingError) {
+        console.warn('Could not load summary export binding:', bindingError);
+      }
+
+      if (exportedFileUpdated) {
+        toast.success('Changes saved and exported markdown updated');
+      } else {
+        toast.success('Changes saved successfully');
+      }
     } catch (error) {
       console.error('Failed to save changes:', error);
       toast.error("Failed to save changes", { description: String(error) });
     } finally {
       setIsSaving(false);
     }
-  }, [isTitleDirty, handleSaveMeetingTitle, aiSummary, handleSaveSummary]);
+  }, [isTitleDirty, handleSaveMeetingTitle, aiSummary, handleSaveSummary, meeting, meetingTitle]);
 
   // Update meeting title from external source (e.g., AI summary)
   const updateMeetingTitle = useCallback((newTitle: string) => {

@@ -3,10 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { FolderOpen, Loader2 } from 'lucide-react';
 import { ModelConfig, ModelSettingsModal } from '@/components/ModelSettingsModal';
 import { SummaryLanguageSettings } from '@/components/SummaryLanguageSettings';
 import { Switch } from './ui/switch';
+import { Button } from './ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
+
+interface SummaryExportPreferences {
+  exportFolder: string;
+}
 
 interface SummaryModelSettingsProps {
   refetchTrigger?: number; // Change this to trigger refetch
@@ -20,8 +26,73 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
     apiKey: null,
     ollamaEndpoint: null
   });
+  const [exportFolder, setExportFolder] = useState<string>('');
+  const [isExportFolderLoading, setIsExportFolderLoading] = useState(true);
+  const [isExportFolderSaving, setIsExportFolderSaving] = useState(false);
 
   const { isAutoSummary, toggleIsAutoSummary } = useConfig();
+
+  const loadExportFolder = useCallback(async () => {
+    setIsExportFolderLoading(true);
+    try {
+      const prefs = await invoke<SummaryExportPreferences>('get_summary_export_preferences');
+      if (prefs?.exportFolder) {
+        setExportFolder(prefs.exportFolder);
+      } else {
+        const defaultPath = await invoke<string>('get_default_summary_export_folder_path');
+        setExportFolder(defaultPath);
+      }
+    } catch (error) {
+      console.error('Failed to load summary export folder:', error);
+      try {
+        const defaultPath = await invoke<string>('get_default_summary_export_folder_path');
+        setExportFolder(defaultPath);
+      } catch {
+        setExportFolder('');
+      }
+    } finally {
+      setIsExportFolderLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExportFolder();
+  }, [loadExportFolder]);
+
+  const handleChangeExportFolder = async () => {
+    setIsExportFolderSaving(true);
+    try {
+      const selected = await invoke<string | null>('select_summary_export_folder');
+      if (!selected) {
+        return;
+      }
+      await invoke('set_summary_export_preferences', {
+        preferences: { exportFolder: selected },
+      });
+      setExportFolder(selected);
+      toast.success('Default export folder updated');
+    } catch (error) {
+      console.error('Failed to set summary export folder:', error);
+      toast.error('Failed to update export folder', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsExportFolderSaving(false);
+    }
+  };
+
+  const handleOpenExportFolder = async () => {
+    try {
+      await invoke('open_summary_export_folder', {
+        folder: exportFolder || null,
+      });
+    } catch (error) {
+      console.error('Failed to open summary export folder:', error);
+      toast.error('Failed to open folder', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
   // Reusable fetch function
   const fetchModelConfig = useCallback(async () => {
@@ -135,6 +206,50 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       </div>
 
       <SummaryLanguageSettings />
+
+      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Default summary export folder</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Used as the starting folder when exporting a summary. You can pick a different folder in
+          the export dialog without changing this default.
+        </p>
+        {isExportFolderLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-md border bg-gray-50 px-3 py-2 font-mono text-sm break-all text-gray-800">
+              {exportFolder || 'Not set'}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleChangeExportFolder}
+                disabled={isExportFolderSaving}
+              >
+                {isExportFolderSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Change folder
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenExportFolder}
+                disabled={!exportFolder}
+              >
+                <FolderOpen className="h-4 w-4 mr-2" />
+                Open folder
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4">Summary Model Configuration</h3>
